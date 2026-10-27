@@ -7,6 +7,8 @@
 <meta name="description" content="Foto einer Messtabelle in eine saubere Excel-Datei umwandeln – kostenlos, alles läuft im Browser.">
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="tabelle.js"></script>
+<script src="ziffern.js"></script>
 <style>
 :root{
   --bg:#f5f7f6; --card:#fff; --ink:#1d2a26; --muted:#5d6e68; --line:#d6dfdb;
@@ -57,7 +59,11 @@ select,input[type=text],input[type=date]{font:inherit;padding:7px 10px;border-ra
 #status{color:var(--muted);font-size:.92rem;margin-top:6px;min-height:1.2em}
 .split{display:grid;gap:16px;grid-template-columns:1fr}
 @media(min-width:900px){.split.has-img{grid-template-columns:minmax(0,1fr) 320px}}
-#refImg{max-width:100%;border:1px solid var(--line);border-radius:10px;position:sticky;top:10px}
+#refImg{max-width:100%;border:1px solid var(--line);border-radius:10px}
+#refSticky{position:sticky;top:10px}
+#cellPeek{display:none;margin-bottom:8px;position:sticky;top:0;z-index:3;background:var(--card);padding:4px 0}
+#cellPeek img{display:block;max-width:100%;height:64px;object-fit:contain;object-position:left;background:#fff;border:2px solid var(--accent);border-radius:8px;margin-top:2px}
+body.gridMode .textOnly{display:none}
 #refBox{display:none}
 .tableWrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:65vh}
 table{border-collapse:collapse;min-width:100%}
@@ -98,9 +104,11 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:0 16px 24px
   <div id="drop" role="button" tabindex="0">📥 <b>Foto hier hineinziehen</b><br>oder hier klicken · kopiertes Bild mit Strg/⌘+V einfügen</div>
   <div class="tips"><b>Tipps für ein gutes Ergebnis</b>
     <ul>
-      <li>Blatt <b>gerade von oben</b> fotografieren, gutes Licht, kein Schatten.</li>
-      <li>Nur die Tabelle auswählen (Rahmen ziehen).</li>
-      <li>Deutlich geschriebene Ziffern werden besser erkannt. <b>Handschrift immer kontrollieren!</b></li>
+      <li>Blatt <b>gerade von oben</b> fotografieren, gutes Licht, kein Schatten. Die ganze Tabelle muss drauf sein.</li>
+      <li>Am besten mit <b>Kuli</b> schreiben – Bleistift ist oft zu blass.</li>
+      <li>Die <b>Einheit in die Überschrift</b> schreiben (z. B. „U in V“), nicht hinter jede Zahl.</li>
+      <li>Wiederholte Werte ausschreiben statt „ oder || – das wird zwar erkannt, aber nicht immer.</li>
+      <li><b>Jede Zahl mit dem Foto vergleichen!</b> Unsichere Zellen werden gelb markiert.</li>
     </ul>
   </div>
 
@@ -114,14 +122,14 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:0 16px 24px
       <button type="button" id="resetCrop">Rahmen löschen</button>
     </div>
     <div class="row" style="margin-top:10px">
-      <label class="chk"><input type="checkbox" id="optContrast" checked> Kontrast verbessern</label>
-      <label class="chk"><input type="checkbox" id="optDigits"> Nur Zahlen erkennen</label>
-      <label class="chk"><input type="checkbox" id="optHeader" checked> 1. Zeile = Überschriften</label>
       <select id="optMode" title="Erkennungsmodus">
-        <option value="6">Modus: Tabelle</option>
-        <option value="11">Modus: verstreute Werte</option>
-        <option value="4">Modus: Spalten</option>
+        <option value="grid">Tabelle mit Linien (Handschrift)</option>
+        <option value="6">Ohne Linien: gedruckter Text</option>
+        <option value="11">Ohne Linien: verstreute Werte</option>
       </select>
+      <label class="chk"><input type="checkbox" id="optHeader" checked> 1. Zeile = Überschriften</label>
+      <label class="chk textOnly"><input type="checkbox" id="optContrast" checked> Kontrast verbessern</label>
+      <label class="chk textOnly"><input type="checkbox" id="optDigits"> Nur Zahlen erkennen</label>
     </div>
     <div class="row" style="margin-top:12px">
       <button type="button" class="primary" id="ocrBtn">🔍 Werte erkennen</button>
@@ -145,10 +153,13 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:0 16px 24px
   </div>
   <div class="split" id="split">
     <div>
+      <div id="cellPeek"><span class="hint">Ausgewählte Zelle im Foto (klicke eine Zelle an):</span> <img id="cellImg" alt="Ausschnitt der ausgewählten Zelle"></div>
       <div class="tableWrap"><table id="grid"></table></div>
-      <div class="legend"><span></span>Gelb = falsch erkannte oder fehlende Zahl → bitte prüfen. − Zeile/Spalte löscht die Zeile/Spalte der ausgewählten Zelle.</div>
+      <div class="legend"><span></span>Gelb = unsicher erkannt oder fehlend → bitte mit dem Foto vergleichen. − Zeile/Spalte löscht die Zeile/Spalte der ausgewählten Zelle.</div>
     </div>
-    <div id="refBox"><p class="hint" style="margin-top:0">Dein Foto zum Vergleichen:</p><img id="refImg" alt="Ausschnitt des Fotos"></div>
+    <div id="refBox"><div id="refSticky">
+      <p class="hint" style="margin-top:0">Dein Foto zum Vergleichen:</p><img id="refImg" alt="Ausschnitt des Fotos">
+    </div></div>
   </div>
 </section>
 
@@ -209,6 +220,8 @@ function loadFile(file){
   img.src = url;
 }
 $('camIn').addEventListener('change', e => loadFile(e.target.files[0]));
+const syncMode = () => document.body.classList.toggle('gridMode', $('optMode').value === 'grid');
+$('optMode').addEventListener('change', syncMode); syncMode();
 $('fileIn').addEventListener('change', e => loadFile(e.target.files[0]));
 
 // Foto hineinziehen (überall auf der Seite) oder aus der Zwischenablage einfügen
@@ -358,6 +371,11 @@ $('ocrBtn').onclick = async () => {
     $('refImg').src = (() => { const r = crop || {x:0,y:0,w:rotated.width,h:rotated.height};
       const t = document.createElement('canvas'); t.width = r.w; t.height = r.h;
       t.getContext('2d').drawImage(rotated, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h); return t.toDataURL('image/jpeg', .85); })();
+    if($('optMode').value === 'grid'){
+      const ok = await readWithGrid();
+      if(ok) return;
+      setProgress(0, 'Keine Tabellenlinien gefunden – normale Texterkennung …');
+    }
     setProgress(0, 'Texterkennung wird geladen …');
     if(!worker){
       worker = await Tesseract.createWorker('deu', 1, {
@@ -365,7 +383,7 @@ $('ocrBtn').onclick = async () => {
       });
     }
     await worker.setParameters({
-      tessedit_pageseg_mode: $('optMode').value,
+      tessedit_pageseg_mode: $('optMode').value === 'grid' ? '6' : $('optMode').value,
       tessedit_char_whitelist: $('optDigits').checked ? '0123456789,.-+−' : '',
       preserve_interword_spaces: '1'
     });
@@ -383,6 +401,8 @@ $('ocrBtn').onclick = async () => {
     const rows = wordsToTable(words, Math.abs(slope) < 0.2 ? slope : 0);
     pushUndo();
     grid = rows.map(r => r.map(cleanCell));
+    flags = grid.map(r => r.map(() => ({})));
+    $('cellPeek').style.display = 'none';
     headerRow = $('optHeader').checked && !$('optDigits').checked;
     showTable(true);
     setProgress(1, `✅ ${rows.length} Zeilen × ${rows[0].length} Spalten erkannt. Jetzt unbedingt kontrollieren!`);
@@ -392,6 +412,80 @@ $('ocrBtn').onclick = async () => {
     $('status').innerHTML = '<span class="danger">Fehler bei der Erkennung. Prüfe deine Internetverbindung (beim ersten Mal werden Sprachdaten geladen) und versuche es nochmal.</span>';
   }finally{ btn.disabled = false; }
 };
+
+// Tabelle mit Linien: jede Zelle einzeln mit dem Ziffern-Erkenner lesen
+function sourceCanvas(){
+  const r = crop || {x:0,y:0,w:rotated.width,h:rotated.height};
+  const scale = Math.min(2, Math.max(1, 1600 / r.w));   // kleine Ausschnitte vergrößern
+  const c = document.createElement('canvas'); c.width = Math.round(r.w*scale); c.height = Math.round(r.h*scale);
+  const x = c.getContext('2d', { willReadFrequently:true }); x.imageSmoothingQuality = 'high';
+  x.drawImage(rotated, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+  return c;
+}
+const tick = () => new Promise(r => setTimeout(r, 0));
+async function readWithGrid(){
+  setProgress(0.02, 'Tabellenlinien werden gesucht …'); await tick();
+  const src = sourceCanvas();
+  const tg = Tabelle.detectGrid(src);
+  if(!tg || tg.hs.length < 3 || tg.vs.length < 2) return false;
+  if(!Ziffern.ready){ setProgress(0.08, 'Ziffern-Erkenner wird geladen …'); await Ziffern.loadModel('ziffern-modell.json'); }
+  const R = tg.hs.length-1, C = tg.vs.length-1;
+  const withHead = $('optHeader').checked;
+  const infos = [], imgs = [];
+  for(let r=0;r<R;r++){
+    const row = [], irow = [];
+    for(let c=0;c<C;c++){
+      const cc = Tabelle.cellCanvas(src, tg, r, c, 64);
+      irow.push(cc ? cc.toDataURL('image/jpeg', 0.8) : '');
+      const info = cc ? Tabelle.cleanCell(cc) : null;
+      row.push(info && !info.empty ? info : null);
+    }
+    infos.push(row); imgs.push(irow);
+    setProgress(0.1 + 0.3*(r+1)/R, `Zellen werden ausgeschnitten … (${r+1}/${R})`); await tick();
+  }
+  setProgress(0.45, 'Zahlen werden gelesen …'); await tick();
+  // readGrid überspringt Zeile 0 → ohne Überschrift eine leere Zeile davor setzen
+  const res = Ziffern.readGrid(withHead ? infos : [infos[0].map(() => null), ...infos]);
+  const rows = withHead ? res.rows : res.rows.slice(1);
+  const out = rows.map(r => r.map(x => x.text));
+  const fl = rows.map((r, ri) => r.map((x, ci) => ({ low: !!x.text && x.conf < 0.6, ditto: !!x.ditto, img: imgs[ri][ci] })));
+  // Überschriften (meist gedruckt) mit der normalen Texterkennung lesen
+  if(withHead){
+    setProgress(0.6, 'Überschriften werden gelesen …'); await tick();
+    try{
+      if(!worker) worker = await Tesseract.createWorker('deu', 1, { logger: m => {} });
+      await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: '', preserve_interword_spaces: '1' });
+      for(let c=0;c<C;c++){
+        if(!infos[0][c]){ out[0][c] = ''; continue; }
+        const cc = Tabelle.cellCanvas(src, tg, 0, c, 90);
+        const { data } = await worker.recognize(cc);
+        out[0][c] = data.text.replace(/[|\[\]{}_]/g,'').replace(/\s+/g,' ').trim();
+        setProgress(0.6 + 0.35*(c+1)/C);
+      }
+    }catch(e){ console.warn('Überschriften nicht erkannt', e); }
+    // Einheit ergänzen, wenn sie in den Zellen stand, aber nicht in der Überschrift erkannt wurde
+    res.units.forEach((u, c) => {
+      const h = (out[0][c] || '').replace(/\s/g, '');
+      if(u && !(h.endsWith(u) || h.includes('(' + u) || h.includes('in' + u))) out[0][c] = (out[0][c] ? out[0][c] + ' ' : '') + 'in ' + u;
+    });
+  }
+  pushUndo();
+  grid = out; flags = fl; headerRow = withHead;
+  // leere Spalten/Zeilen entfernen
+  const keepC = grid[0].map((_, c) => grid.some((r, ri) => (ri > 0 || !headerRow) && r[c].trim()));
+  grid = grid.map(r => r.filter((_, c) => keepC[c])); flags = flags.map(r => r.filter((_, c) => keepC[c]));
+  // leere Zeilen und fast leere Zeilen unterhalb der Messwerte (Flecken in leeren Tabellenzeilen) weglassen
+  const filled = grid.map(r => r.filter(v => v.trim()).length);
+  let lastFull = 0; filled.forEach((n, i) => { if(n >= grid[0].length*0.5) lastFull = i; });
+  const keepR = grid.map((r, ri) => (ri === 0 && headerRow) || (filled[ri] > 0 && (ri <= lastFull || filled[ri] >= grid[0].length*0.3)));
+  grid = grid.filter((_, i) => keepR[i]); flags = flags.filter((_, i) => keepR[i]);
+  showTable(true);
+  $('cellPeek').style.display = 'block'; $('cellImg').style.visibility = 'hidden';
+  const nLow = flags.flat().filter(f => f.low).length;
+  setProgress(1, `✅ ${grid.length - (headerRow?1:0)} Zeilen × ${grid[0].length} Spalten gelesen.` + (nLow ? ` ${nLow} unsichere Zellen sind gelb markiert.` : '') + ' Bitte jede Zahl mit dem Foto vergleichen!');
+  $('tableCard').scrollIntoView({behavior:'smooth', block:'start'});
+  return true;
+}
 
 // Wörter mit Position → Zeilen und Spalten
 function wordsToTable(words, slope){
@@ -468,17 +562,24 @@ function toNumber(s){
 
 /* ---------- Tabelle ---------- */
 let grid = [];
+let flags = [];          // je Zelle: { low: unsicher, ditto, img: Ausschnitt aus dem Foto }
 let headerRow = true;
 let sel = {r:0,c:0};
 const undoStack = [];
-function pushUndo(){ undoStack.push(JSON.stringify({grid,headerRow})); if(undoStack.length > 40) undoStack.shift(); }
-$('undoBtn').onclick = () => { const s = undoStack.pop(); if(!s) return; ({grid,headerRow} = JSON.parse(s)); render(); };
+function pushUndo(){ undoStack.push(JSON.stringify({grid,headerRow,flags})); if(undoStack.length > 15) undoStack.shift(); }
+$('undoBtn').onclick = () => { const s = undoStack.pop(); if(!s) return; ({grid,headerRow,flags} = JSON.parse(s)); flags = flags || []; render(); };
 
 function normalize(){
   const n = Math.max(1, ...grid.map(r=>r.length));
   grid.forEach(r => { while(r.length < n) r.push(''); });
   if(!grid.length) grid.push(Array(n).fill(''));
+  while(flags.length < grid.length) flags.push([]);
+  flags.length = grid.length;
+  flags.forEach(r => { while(r.length < n) r.push({}); r.length = n; });
 }
+// Zeilen/Spalten in grid und flags gleichzeitig ändern
+const insRow = (at) => { grid.splice(at, 0, Array(grid[0].length).fill('')); flags.splice(at, 0, grid[0].map(() => ({}))); };
+const insCol = (at) => { grid.forEach(r => r.splice(at, 0, '')); flags.forEach(r => r.splice(at, 0, {})); };
 function showTable(withImg){
   $('tableCard').style.display = 'block';
   $('exportCard').style.display = 'block';
@@ -505,7 +606,9 @@ function render(){
     row.forEach((v,c) => {
       const td = document.createElement('td');
       td.contentEditable = 'true'; td.textContent = v; td.dataset.r = r; td.dataset.c = c;
-      if(!(r===0 && headerRow) && isSuspect(v, numC[c], filled)) td.classList.add('suspect');
+      const f = (flags[r] && flags[r][c]) || {};
+      if(!(r===0 && headerRow) && (f.low || isSuspect(v, numC[c], filled))) td.classList.add('suspect');
+      if(f.ditto) td.title = 'aus Wiederholungszeichen (") übernommen';
       if(r===sel.r && c===sel.c) td.classList.add('sel');
       tr.appendChild(td);
     });
@@ -518,17 +621,22 @@ grd.addEventListener('focusin', e => {
   const td = e.target.closest('td[contenteditable]'); if(!td) return;
   grd.querySelectorAll('td.sel').forEach(x=>x.classList.remove('sel'));
   td.classList.add('sel'); sel = {r:+td.dataset.r, c:+td.dataset.c};
-  editSnap = JSON.stringify({grid,headerRow});
+  editSnap = JSON.stringify({grid,headerRow,flags});
+  const f = flags[sel.r] && flags[sel.r][sel.c];
+  if(f && f.img){ $('cellImg').src = f.img; $('cellImg').style.visibility = 'visible'; }
+  else $('cellImg').style.visibility = 'hidden';
 });
 grd.addEventListener('input', e => {
   const td = e.target.closest('td[contenteditable]'); if(!td) return;
   grid[+td.dataset.r][+td.dataset.c] = td.textContent;
+  const f = flags[+td.dataset.r] && flags[+td.dataset.r][+td.dataset.c]; if(f) f.low = false;   // vom Schüler geprüft
 });
 grd.addEventListener('focusout', e => {
   const td = e.target.closest('td[contenteditable]'); if(!td) return;
-  if(editSnap && editSnap !== JSON.stringify({grid,headerRow})){ undoStack.push(editSnap); }
+  if(editSnap && editSnap !== JSON.stringify({grid,headerRow,flags})){ undoStack.push(editSnap); }
   const r = +td.dataset.r, c = +td.dataset.c;
-  td.classList.toggle('suspect', !(r===0 && headerRow) && isSuspect(grid[r][c], numericCols()[c], grid[r].some(v=>v.trim())));
+  const f = (flags[r] && flags[r][c]) || {};
+  td.classList.toggle('suspect', !(r===0 && headerRow) && (f.low || isSuspect(grid[r][c], numericCols()[c], grid[r].some(v=>v.trim()))));
 });
 function focusCell(r,c){
   const td = grd.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
@@ -571,21 +679,23 @@ grd.addEventListener('paste', e => {
 $('emptyBtn').onclick = () => {
   if(grid.length && grid.some(r=>r.some(v=>v.trim())) && !confirm('Die aktuelle Tabelle wird ersetzt. Weiter?')) return;
   pushUndo();
-  grid = [['Zeit t (s)','Messwert ()'], ...Array.from({length:8},()=>['',''])];
+  grid = [['Zeit t (s)','Messwert ()'], ...Array.from({length:8},()=>['',''])]; flags = []; $('cellPeek').style.display = 'none';
   headerRow = true; showTable(false);
   $('tableCard').scrollIntoView({behavior:'smooth', block:'start'});
 };
-$('addRow').onclick = () => { pushUndo(); grid.splice(sel.r+1, 0, Array(grid[0].length).fill('')); render(); focusCell(sel.r+1, sel.c); };
-$('addCol').onclick = () => { pushUndo(); grid.forEach(r => r.splice(sel.c+1, 0, '')); render(); focusCell(sel.r, sel.c+1); };
-$('delRow').onclick = () => { if(grid.length<2) return; pushUndo(); grid.splice(sel.r,1); sel.r = Math.min(sel.r, grid.length-1); render(); };
-$('delCol').onclick = () => { if(grid[0].length<2) return; pushUndo(); grid.forEach(r=>r.splice(sel.c,1)); sel.c = Math.min(sel.c, grid[0].length-1); render(); };
+$('addRow').onclick = () => { pushUndo(); insRow(sel.r+1); render(); focusCell(sel.r+1, sel.c); };
+$('addCol').onclick = () => { pushUndo(); insCol(sel.c+1); render(); focusCell(sel.r, sel.c+1); };
+$('delRow').onclick = () => { if(grid.length<2) return; pushUndo(); grid.splice(sel.r,1); flags.splice(sel.r,1); sel.r = Math.min(sel.r, grid.length-1); render(); };
+$('delCol').onclick = () => { if(grid[0].length<2) return; pushUndo(); grid.forEach(r=>r.splice(sel.c,1)); flags.forEach(r=>r.splice(sel.c,1)); sel.c = Math.min(sel.c, grid[0].length-1); render(); };
 $('fixBtn').onclick = () => { pushUndo(); const nc = numericCols(); grid = grid.map((row,r) => (r===0 && headerRow) ? row : row.map((v,c) => fixNumber(v, nc[c]))); render(); };
 $('cleanBtn').onclick = () => {
   pushUndo();
-  grid = grid.filter(r => r.some(v => v.trim()));
-  if(!grid.length){ grid = [['']]; render(); return; }
+  normalize();
+  const keepR = grid.map(r => r.some(v => v.trim()));
+  grid = grid.filter((_,i) => keepR[i]); flags = flags.filter((_,i) => keepR[i]);
+  if(!grid.length){ grid = [['']]; flags = []; render(); return; }
   const keep = grid[0].map((_,c) => grid.some(r => (r[c]||'').trim()));
-  grid = grid.map(r => r.filter((_,c) => keep[c]));
+  grid = grid.map(r => r.filter((_,c) => keep[c])); flags = flags.map(r => r.filter((_,c) => keep[c]));
   render();
 };
 
