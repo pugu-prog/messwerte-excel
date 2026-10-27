@@ -40,6 +40,10 @@ button:hover,.btn:hover{border-color:var(--accent)}
 button.primary,.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
 button:disabled{opacity:.5;cursor:not-allowed}
 input[type=file]{display:none}
+#drop{margin-top:12px;border:2px dashed var(--line);border-radius:12px;padding:22px 16px;text-align:center;color:var(--muted);cursor:pointer;transition:background .15s,border-color .15s}
+#drop b{color:var(--ink)}
+#drop.over,#drop:hover{border-color:var(--accent);background:var(--accent-soft)}
+body.dragging #drop{border-color:var(--accent);background:var(--accent-soft)}
 label.chk{display:inline-flex;gap:6px;align-items:center;color:var(--muted);font-size:.95rem}
 select,input[type=text],input[type=date]{font:inherit;padding:7px 10px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 .tips{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:.92rem;margin:10px 0 0}
@@ -91,6 +95,7 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:0 16px 24px
     <input id="fileIn" type="file" accept="image/*">
     <button id="emptyBtn" type="button">✏️ Ohne Foto – leere Tabelle</button>
   </div>
+  <div id="drop" role="button" tabindex="0">📥 <b>Foto hier hineinziehen</b><br>oder hier klicken · kopiertes Bild mit Strg/⌘+V einfügen</div>
   <div class="tips"><b>Tipps für ein gutes Ergebnis</b>
     <ul>
       <li>Blatt <b>gerade von oben</b> fotografieren, gutes Licht, kein Schatten.</li>
@@ -205,6 +210,28 @@ function loadFile(file){
 }
 $('camIn').addEventListener('change', e => loadFile(e.target.files[0]));
 $('fileIn').addEventListener('change', e => loadFile(e.target.files[0]));
+
+// Foto hineinziehen (überall auf der Seite) oder aus der Zwischenablage einfügen
+const drop = $('drop');
+drop.onclick = () => $('fileIn').click();
+drop.onkeydown = e => { if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); $('fileIn').click(); } };
+const imageFrom = list => [...(list || [])].find(f => f.type && f.type.startsWith('image/'));
+let dragDepth = 0;
+const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+document.addEventListener('dragenter', e => { if(!hasFiles(e)) return; e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+document.addEventListener('dragover', e => { if(!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+document.addEventListener('dragleave', e => { if(!hasFiles(e)) return; if(--dragDepth <= 0){ dragDepth = 0; document.body.classList.remove('dragging'); } });
+document.addEventListener('drop', e => {
+  if(!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+  const f = imageFrom(e.dataTransfer.files);
+  if(f) loadFile(f); else alert('Bitte ein Bild (JPG, PNG, HEIC …) hineinziehen.');
+});
+document.addEventListener('paste', e => {
+  if(e.target.closest && e.target.closest('td[contenteditable], input')) return;
+  const f = imageFrom([...(e.clipboardData?.items || [])].filter(i => i.kind === 'file').map(i => i.getAsFile()));
+  if(f){ e.preventDefault(); loadFile(f); }
+});
 
 function buildRotated(){
   const a = rot90*Math.PI/2 + fineDeg*Math.PI/180;
