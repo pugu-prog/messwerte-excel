@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Messwerte → Excel</title>
+<meta name="description" content="Foto einer Messtabelle in eine saubere Excel-Datei umwandeln – kostenlos, alles läuft im Browser.">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<style>
+:root{
+  --bg:#f5f7f6; --card:#fff; --ink:#1d2a26; --muted:#5d6e68; --line:#d6dfdb;
+  --accent:#1f7a5a; --accent-ink:#fff; --accent-soft:#e3f2ec; --warn:#fff3c4; --warn-ink:#7a5b00;
+  --head:#eaf0ee; --danger:#b3261e;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121816; --card:#1b2320; --ink:#e6eeeb; --muted:#9aaba5; --line:#2f3b37;
+    --accent:#4cc79a; --accent-ink:#0b1a14; --accent-soft:#1e3a30; --warn:#4a3d0c; --warn-ink:#ffe08a;
+    --head:#24302c; --danger:#ff8a80;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121816; --card:#1b2320; --ink:#e6eeeb; --muted:#9aaba5; --line:#2f3b37;
+  --accent:#4cc79a; --accent-ink:#0b1a14; --accent-soft:#1e3a30; --warn:#4a3d0c; --warn-ink:#ffe08a;
+  --head:#24302c; --danger:#ff8a80;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:20px 16px 8px;max-width:1100px;margin:0 auto}
+h1{margin:0;font-size:1.6rem}
+header p{margin:4px 0 0;color:var(--muted)}
+main{max-width:1100px;margin:0 auto;padding:8px 16px 48px;display:grid;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card h2{margin:0 0 10px;font-size:1.15rem;display:flex;gap:10px;align-items:center}
+.step{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:.95rem;flex:none}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 12px;border-radius:10px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+button:hover,.btn:hover{border-color:var(--accent)}
+button.primary,.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+input[type=file]{display:none}
+label.chk{display:inline-flex;gap:6px;align-items:center;color:var(--muted);font-size:.95rem}
+select,input[type=text],input[type=date]{font:inherit;padding:7px 10px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.tips{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:.92rem;margin:10px 0 0}
+.tips ul{margin:4px 0 0;padding-left:18px}
+#stage{margin-top:12px;display:none}
+#canvasWrap{position:relative;max-width:100%;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#000;touch-action:none}
+#view{display:block;max-width:100%;max-height:60vh;width:auto;height:auto;margin:0 auto;cursor:crosshair}
+.hint{color:var(--muted);font-size:.9rem;margin:6px 0}
+.progress{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:10px;display:none}
+.progress>div{height:100%;width:0;background:var(--accent);transition:width .2s}
+#status{color:var(--muted);font-size:.92rem;margin-top:6px;min-height:1.2em}
+.split{display:grid;gap:16px;grid-template-columns:1fr}
+@media(min-width:900px){.split.has-img{grid-template-columns:minmax(0,1fr) 320px}}
+#refImg{max-width:100%;border:1px solid var(--line);border-radius:10px;position:sticky;top:10px}
+#refBox{display:none}
+.tableWrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:65vh}
+table{border-collapse:collapse;min-width:100%}
+td,th{border:1px solid var(--line);padding:0;min-width:90px}
+th{background:var(--head);font-weight:500;font-size:.8rem;color:var(--muted);padding:3px 6px;position:sticky;top:0;z-index:1}
+th.rn,td.rn{min-width:36px;width:36px;text-align:center;color:var(--muted);font-size:.8rem;background:var(--head);padding:0 4px}
+td[contenteditable]{padding:6px 8px;outline:none;white-space:nowrap}
+td[contenteditable]:focus{box-shadow:inset 0 0 0 2px var(--accent)}
+tr.headrow td[contenteditable]{font-weight:700;background:var(--accent-soft)}
+td.suspect{background:var(--warn);color:var(--warn-ink)}
+td.sel{box-shadow:inset 0 0 0 2px var(--accent)}
+.legend{font-size:.85rem;color:var(--muted);margin-top:8px}
+.legend span{display:inline-block;width:12px;height:12px;background:var(--warn);border-radius:3px;vertical-align:middle;margin-right:4px}
+.grid2{display:grid;gap:10px;grid-template-columns:1fr}
+@media(min-width:640px){.grid2{grid-template-columns:1fr 1fr}}
+.grid2 label{display:grid;gap:4px;font-size:.9rem;color:var(--muted)}
+.grid2 input{width:100%}
+footer{text-align:center;color:var(--muted);font-size:.85rem;padding:0 16px 24px}
+.danger{color:var(--danger)}
+</style>
+</head>
+<body>
+<header>
+  <h1>📸 Messwerte → Excel</h1>
+  <p>Foto von deiner Messtabelle machen, kontrollieren, als Excel-Datei herunterladen. Kostenlos – das Foto verlässt dein Gerät nicht.</p>
+</header>
+<main>
+
+<section class="card">
+  <h2><span class="step">1</span>Foto aufnehmen oder hochladen</h2>
+  <div class="row">
+    <label class="btn primary" for="camIn">📷 Foto aufnehmen</label>
+    <input id="camIn" type="file" accept="image/*" capture="environment">
+    <label class="btn" for="fileIn">🖼️ Bild auswählen</label>
+    <input id="fileIn" type="file" accept="image/*">
+    <button id="emptyBtn" type="button">✏️ Ohne Foto – leere Tabelle</button>
+  </div>
+  <div class="tips"><b>Tipps für ein gutes Ergebnis</b>
+    <ul>
+      <li>Blatt <b>gerade von oben</b> fotografieren, gutes Licht, kein Schatten.</li>
+      <li>Nur die Tabelle auswählen (Rahmen ziehen).</li>
+      <li>Deutlich geschriebene Ziffern werden besser erkannt. <b>Handschrift immer kontrollieren!</b></li>
+    </ul>
+  </div>
+
+  <div id="stage">
+    <p class="hint">Ziehe mit dem Finger/der Maus einen Rahmen um die Tabelle. Ohne Rahmen wird das ganze Bild benutzt.</p>
+    <div id="canvasWrap"><canvas id="view"></canvas></div>
+    <div class="row" style="margin-top:10px">
+      <button type="button" id="rotL">⟲ 90°</button>
+      <button type="button" id="rotR">⟳ 90°</button>
+      <label class="chk">Feinausrichtung <input id="fine" type="range" min="-10" max="10" step="0.5" value="0" style="width:120px"> <span id="fineVal">0°</span></label>
+      <button type="button" id="resetCrop">Rahmen löschen</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="chk"><input type="checkbox" id="optContrast" checked> Kontrast verbessern</label>
+      <label class="chk"><input type="checkbox" id="optDigits"> Nur Zahlen erkennen</label>
+      <label class="chk"><input type="checkbox" id="optHeader" checked> 1. Zeile = Überschriften</label>
+      <select id="optMode" title="Erkennungsmodus">
+        <option value="6">Modus: Tabelle</option>
+        <option value="11">Modus: verstreute Werte</option>
+        <option value="4">Modus: Spalten</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button type="button" class="primary" id="ocrBtn">🔍 Werte erkennen</button>
+    </div>
+    <div class="progress" id="prog"><div></div></div>
+    <div id="status"></div>
+  </div>
+</section>
+
+<section class="card" id="tableCard" style="display:none">
+  <h2><span class="step">2</span>Tabelle kontrollieren und verbessern</h2>
+  <p class="hint">Klicke in eine Zelle, um sie zu ändern. <b>Enter</b> = nächste Zeile, <b>Tab</b> = nächste Spalte. Du kannst auch Daten aus einer anderen Tabelle einfügen (Strg/⌘+V).</p>
+  <div class="row" style="margin-bottom:10px">
+    <button type="button" id="addRow">+ Zeile</button>
+    <button type="button" id="addCol">+ Spalte</button>
+    <button type="button" id="delRow">− Zeile</button>
+    <button type="button" id="delCol">− Spalte</button>
+    <button type="button" id="fixBtn" title="O→0, l→1, Kommas vereinheitlichen …">🪄 Zahlen bereinigen</button>
+    <button type="button" id="cleanBtn">Leere Zeilen/Spalten entfernen</button>
+    <button type="button" id="undoBtn">↶ Rückgängig</button>
+  </div>
+  <div class="split" id="split">
+    <div>
+      <div class="tableWrap"><table id="grid"></table></div>
+      <div class="legend"><span></span>Gelb = falsch erkannte oder fehlende Zahl → bitte prüfen. − Zeile/Spalte löscht die Zeile/Spalte der ausgewählten Zelle.</div>
+    </div>
+    <div id="refBox"><p class="hint" style="margin-top:0">Dein Foto zum Vergleichen:</p><img id="refImg" alt="Ausschnitt des Fotos"></div>
+  </div>
+</section>
+
+<section class="card" id="exportCard" style="display:none">
+  <h2><span class="step">3</span>Angaben und Excel herunterladen</h2>
+  <div class="grid2">
+    <label>Titel des Versuchs<input type="text" id="mTitle" placeholder="z. B. Temperaturverlauf beim Erhitzen von Wasser"></label>
+    <label>Name(n)<input type="text" id="mNames" placeholder="z. B. Lena, Tom"></label>
+    <label>Klasse<input type="text" id="mClass" placeholder="z. B. 3GSE"></label>
+    <label>Datum<input type="date" id="mDate"></label>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <label class="chk"><input type="checkbox" id="optNumbers" checked> Zahlen als Zahlen speichern (zum Rechnen und für Diagramme)</label>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <button type="button" class="primary" id="xlsxBtn">⬇️ Excel-Datei herunterladen</button>
+    <button type="button" id="csvBtn">CSV</button>
+  </div>
+  <p class="hint">Tipp: Einheit in die Überschrift schreiben, z. B. <i>Zeit t (s)</i> oder <i>Temperatur T (°C)</i>.</p>
+</section>
+
+</main>
+<footer>Läuft komplett im Browser (Texterkennung: Tesseract.js). Keine Anmeldung, keine Kosten, keine Daten werden hochgeladen.</footer>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+
+/* ---------- Bild laden, drehen, zuschneiden ---------- */
+let srcImg = null;       // geladenes Bild (verkleinert)
+let rot90 = 0;           // 0..3
+let fineDeg = 0;
+let rotated = null;      // Canvas mit gedrehtem Bild
+let crop = null;         // {x,y,w,h} in Koordinaten von rotated
+const view = $('view');
+const vctx = view.getContext('2d');
+const MAX_SIDE = 2400;
+
+function loadFile(file){
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const s = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width*s); c.height = Math.round(img.height*s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    srcImg = c; rot90 = 0; fineDeg = 0; $('fine').value = 0; $('fineVal').textContent = '0°';
+    crop = null;
+    URL.revokeObjectURL(url);
+    $('stage').style.display = 'block';
+    $('status').textContent = '';
+    buildRotated();
+    $('stage').scrollIntoView({behavior:'smooth', block:'start'});
+  };
+  img.onerror = () => alert('Dieses Bild konnte nicht geöffnet werden. Versuche JPG oder PNG.');
+  img.src = url;
+}
+$('camIn').addEventListener('change', e => loadFile(e.target.files[0]));
+$('fileIn').addEventListener('change', e => loadFile(e.target.files[0]));
+
+function buildRotated(){
+  const a = rot90*Math.PI/2 + fineDeg*Math.PI/180;
+  const w = srcImg.width, h = srcImg.height;
+  const cos = Math.abs(Math.cos(a)), sin = Math.abs(Math.sin(a));
+  const c = document.createElement('canvas');
+  c.width = Math.round(w*cos + h*sin); c.height = Math.round(w*sin + h*cos);
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0,0,c.width,c.height);
+  x.translate(c.width/2, c.height/2); x.rotate(a);
+  x.drawImage(srcImg, -w/2, -h/2);
+  rotated = c;
+  view.width = c.width; view.height = c.height;
+  draw();
+}
+function draw(){
+  if(!rotated) return;
+  vctx.drawImage(rotated, 0, 0);
+  if(crop && crop.w > 2 && crop.h > 2){
+    vctx.fillStyle = 'rgba(0,0,0,.45)';
+    vctx.beginPath();
+    vctx.rect(0,0,view.width,view.height);
+    vctx.rect(crop.x, crop.y, crop.w, crop.h);
+    vctx.fill('evenodd');
+    vctx.strokeStyle = '#4cc79a'; vctx.lineWidth = Math.max(3, view.width/300);
+    vctx.strokeRect(crop.x, crop.y, crop.w, crop.h);
+  }
+  // Hilfslinien für die Feinausrichtung
+  if(fineDeg !== 0){
+    vctx.strokeStyle = 'rgba(76,199,154,.6)'; vctx.lineWidth = 1;
+    for(let y = view.height/10; y < view.height; y += view.height/10){
+      vctx.beginPath(); vctx.moveTo(0,y); vctx.lineTo(view.width,y); vctx.stroke();
+    }
+  }
+}
+$('rotL').onclick = () => { rot90 = (rot90+3)%4; crop = null; buildRotated(); };
+$('rotR').onclick = () => { rot90 = (rot90+1)%4; crop = null; buildRotated(); };
+$('fine').oninput = e => { fineDeg = +e.target.value; $('fineVal').textContent = fineDeg+'°'; crop = null; buildRotated(); };
+$('resetCrop').onclick = () => { crop = null; draw(); };
+
+let dragStart = null;
+function toCanvas(e){
+  const r = view.getBoundingClientRect();
+  return { x:(e.clientX-r.left)*view.width/r.width, y:(e.clientY-r.top)*view.height/r.height };
+}
+view.addEventListener('pointerdown', e => { view.setPointerCapture(e.pointerId); dragStart = toCanvas(e); crop = {x:dragStart.x,y:dragStart.y,w:0,h:0}; });
+view.addEventListener('pointermove', e => {
+  if(!dragStart) return;
+  const p = toCanvas(e);
+  const x = Math.max(0, Math.min(p.x, dragStart.x)), y = Math.max(0, Math.min(p.y, dragStart.y));
+  crop = { x, y, w: Math.min(view.width, Math.max(p.x, dragStart.x)) - x, h: Math.min(view.height, Math.max(p.y, dragStart.y)) - y };
+  draw();
+});
+view.addEventListener('pointerup', () => { dragStart = null; if(crop && (crop.w < 20 || crop.h < 20)) crop = null; draw(); });
+
+function preparedCanvas(){
+  const r = crop || {x:0,y:0,w:rotated.width,h:rotated.height};
+  // kleine Ausschnitte vergrößern – Tesseract mag ~30px hohe Zeichen
+  const scale = Math.min(3, Math.max(1, 1800 / r.w));
+  const c = document.createElement('canvas');
+  c.width = Math.round(r.w*scale); c.height = Math.round(r.h*scale);
+  const x = c.getContext('2d');
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(rotated, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+  if($('optContrast').checked) enhance(c);
+  return c;
+}
+// Graustufen + Hintergrund ausgleichen (Schatten) + Schwellwert
+function enhance(c){
+  const x = c.getContext('2d');
+  const d = x.getImageData(0,0,c.width,c.height), p = d.data, W = c.width, H = c.height;
+  const g = new Float32Array(W*H);
+  for(let i=0;i<W*H;i++) g[i] = 0.299*p[i*4] + 0.587*p[i*4+1] + 0.114*p[i*4+2];
+  // Hintergrund über verkleinertes, unscharfes Bild schätzen
+  const bw = Math.max(1, Math.round(W/24)), bh = Math.max(1, Math.round(H/24));
+  const sc = document.createElement('canvas'); sc.width = bw; sc.height = bh;
+  const sx = sc.getContext('2d');
+  sx.filter = 'blur(2px)';
+  sx.drawImage(c, 0, 0, bw, bh);
+  const bg = sx.getImageData(0,0,bw,bh).data;
+  const norm = new Float32Array(W*H);
+  for(let y=0;y<H;y++){
+    const by = Math.min(bh-1, Math.floor(y*bh/H));
+    for(let xx=0;xx<W;xx++){
+      const bx = Math.min(bw-1, Math.floor(xx*bw/W)), bi = (by*bw+bx)*4;
+      const b = Math.max(40, 0.299*bg[bi] + 0.587*bg[bi+1] + 0.114*bg[bi+2]);
+      norm[y*W+xx] = Math.min(255, g[y*W+xx] / b * 255);
+    }
+  }
+  // Otsu
+  const hist = new Array(256).fill(0);
+  for(let i=0;i<norm.length;i++) hist[norm[i]|0]++;
+  let sum=0; for(let i=0;i<256;i++) sum += i*hist[i];
+  let sB=0, wB=0, best=0, thr=180;
+  for(let t=0;t<256;t++){
+    wB += hist[t]; if(!wB) continue;
+    const wF = norm.length - wB; if(!wF) break;
+    sB += t*hist[t];
+    const mB = sB/wB, mF = (sum-sB)/wF, v = wB*wF*(mB-mF)*(mB-mF);
+    if(v > best){ best = v; thr = t; }
+  }
+  thr = Math.min(thr, 215);
+  for(let i=0;i<norm.length;i++){ const v = norm[i] < thr ? 0 : 255; p[i*4]=p[i*4+1]=p[i*4+2]=v; p[i*4+3]=255; }
+  x.putImageData(d,0,0);
+}
+
+/* ---------- Texterkennung ---------- */
+let worker = null;
+const prog = $('prog'), bar = prog.firstElementChild;
+function setProgress(f, msg){ prog.style.display = 'block'; bar.style.width = Math.round(f*100)+'%'; if(msg) $('status').textContent = msg; }
+const STATUS_DE = {
+  'loading tesseract core':'Texterkennung wird geladen …',
+  'initializing tesseract':'Texterkennung wird gestartet …',
+  'loading language traineddata':'Sprachdaten werden geladen (nur beim ersten Mal) …',
+  'initializing api':'Wird vorbereitet …',
+  'recognizing text':'Werte werden erkannt …'
+};
+
+$('ocrBtn').onclick = async () => {
+  if(!rotated) return;
+  const btn = $('ocrBtn'); btn.disabled = true;
+  try{
+    const c = preparedCanvas();
+    $('refImg').src = (() => { const r = crop || {x:0,y:0,w:rotated.width,h:rotated.height};
+      const t = document.createElement('canvas'); t.width = r.w; t.height = r.h;
+      t.getContext('2d').drawImage(rotated, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h); return t.toDataURL('image/jpeg', .85); })();
+    setProgress(0, 'Texterkennung wird geladen …');
+    if(!worker){
+      worker = await Tesseract.createWorker('deu', 1, {
+        logger: m => setProgress(m.progress || 0, STATUS_DE[m.status] || m.status)
+      });
+    }
+    await worker.setParameters({
+      tessedit_pageseg_mode: $('optMode').value,
+      tessedit_char_whitelist: $('optDigits').checked ? '0123456789,.-+−' : '',
+      preserve_interword_spaces: '1'
+    });
+    const { data } = await worker.recognize(c);
+    const words = [];
+    (data.words || []).forEach(w => { const t = w.text.trim(); if(t && w.confidence > 15) words.push({ t, ...w.bbox, conf:w.confidence }); });
+    if(!words.length){ setProgress(1, '⚠️ Es wurde nichts erkannt. Rahmen enger ziehen, Bild drehen oder „Kontrast verbessern“ umschalten.'); return; }
+    // Schräglage aus Tesseracts eigenen Zeilen schätzen
+    const slopes = [];
+    (data.lines || []).forEach(L => { const ws = (L.words||[]).filter(w => w.text.trim());
+      for(let i=1;i<ws.length;i++){ const a = ws[i-1].bbox, b = ws[i].bbox, dx = (b.x0+b.x1-a.x0-a.x1)/2;
+        if(dx > 20) slopes.push(((b.y0+b.y1)-(a.y0+a.y1))/2/dx); } });
+    slopes.sort((a,b)=>a-b);
+    const slope = slopes.length ? slopes[Math.floor(slopes.length/2)] : 0;
+    const rows = wordsToTable(words, Math.abs(slope) < 0.2 ? slope : 0);
+    pushUndo();
+    grid = rows.map(r => r.map(cleanCell));
+    headerRow = $('optHeader').checked && !$('optDigits').checked;
+    showTable(true);
+    setProgress(1, `✅ ${rows.length} Zeilen × ${rows[0].length} Spalten erkannt. Jetzt unbedingt kontrollieren!`);
+    $('tableCard').scrollIntoView({behavior:'smooth', block:'start'});
+  }catch(err){
+    console.error(err);
+    $('status').innerHTML = '<span class="danger">Fehler bei der Erkennung. Prüfe deine Internetverbindung (beim ersten Mal werden Sprachdaten geladen) und versuche es nochmal.</span>';
+  }finally{ btn.disabled = false; }
+};
+
+// Wörter mit Position → Zeilen und Spalten
+function wordsToTable(words, slope){
+  const hs = words.map(w => w.y1-w.y0).sort((a,b)=>a-b);
+  const h = hs[Math.floor(hs.length/2)] || 20;
+  // Zeilen: nach vertikaler Mitte gruppieren
+  words.forEach(w => { w.cx = (w.x0+w.x1)/2; w.cy = (w.y0+w.y1)/2 - slope*w.cx; });
+  const sorted = [...words].sort((a,b)=>a.cy-b.cy);
+  const lines = [];
+  for(const w of sorted){
+    const L = lines[lines.length-1];
+    if(L && Math.abs(w.cy - L.cy) < h*0.6){ L.words.push(w); L.cy = L.words.reduce((s,v)=>s+v.cy,0)/L.words.length; }
+    else lines.push({ cy:w.cy, words:[w] });
+  }
+  // Spalten: Lücken in der horizontalen Belegung suchen (bevorzugt in Zahlenzeilen)
+  const isNumLine = L => L.words.filter(w => /\d/.test(w.t)).length >= L.words.length*0.6;
+  let basis = lines.filter(isNumLine);
+  if(basis.length < 2) basis = lines;
+  const maxX = Math.ceil(Math.max(...words.map(w=>w.x1))) + 1;
+  const cover = new Uint16Array(maxX);
+  basis.forEach(L => L.words.forEach(w => { for(let x=Math.max(0,Math.floor(w.x0)); x<Math.ceil(w.x1); x++) cover[x]++; }));
+  const minGap = h*1.1;
+  const bounds = [];
+  let start = -1, seenInk = false;
+  for(let x=0;x<maxX;x++){
+    if(cover[x] === 0){ if(start < 0) start = x; }
+    else { if(start >= 0 && seenInk && x-start >= minGap) bounds.push((start+x)/2); start = -1; seenInk = true; }
+  }
+  const nCols = bounds.length + 1;
+  const colOf = cx => { let i=0; while(i<bounds.length && cx > bounds[i]) i++; return i; };
+  return lines.map(L => {
+    const cells = Array.from({length:nCols}, () => []);
+    // nahe beieinander liegende Wörter (z. B. „Temperatur T (°C)“) bleiben zusammen
+    const phrases = [];
+    L.words.sort((a,b)=>a.x0-b.x0).forEach(w => {
+      const P = phrases[phrases.length-1];
+      if(P && w.x0 - P.x1 < minGap*0.8){ P.t.push(w.t); P.x1 = Math.max(P.x1, w.x1); }
+      else phrases.push({ t:[w.t], x0:w.x0, x1:w.x1 });
+    });
+    phrases.forEach(P => cells[colOf((P.x0+P.x1)/2)].push(P.t.join(' ')));
+    return cells.map(c => c.join(' '));
+  });
+}
+
+/* ---------- Bereinigen ---------- */
+const looksNumeric = s => { const d = (s.match(/\d/g)||[]).length; return d > 0 && d >= s.replace(/\s/g,'').length*0.5; };
+function fixNumber(s, numCol){
+  let t = s.trim();
+  if(!looksNumeric(t) && !(numCol && t.length <= 4 && /^[OoÖöDQlIi|!SsBZzgq.,]+$/.test(t))) return t;
+  t = t.replace(/[OoÖöDQ]/g,'0').replace(/[lI|!]/g,'1').replace(/[Ss]/g,'5').replace(/B/g,'8').replace(/[Zz]/g,'2').replace(/[gq]/g,'9')
+       .replace(/−|–/g,'-').replace(/\s+(?=[\d,.])/g,'').replace(/(?<=\d)\s+/g,'')
+       .replace(/^[,.]/,'0,').replace(/\.(?=\d)/g, m => m) ;
+  t = t.replace(/[^\d,.\-+eE]/g,'');
+  // Dezimalpunkt → Komma (wie in Luxemburg/Deutschland üblich), außer Tausenderformat
+  if(/^-?\d+\.\d+$/.test(t)) t = t.replace('.', ',');
+  return t;
+}
+const cleanCell = s => s.replace(/[|_]{2,}/g,'').replace(/^[|:;]+|[|:;]+$/g,'').trim();
+const NUM_RE = /^[-+]?\d+([.,]\d+)?([eE][-+]?\d+)?$/;
+// Spalte gilt als Zahlenspalte, wenn mind. 60 % der gefüllten Zellen Zahlen sind
+function numericCols(){
+  const start = headerRow ? 1 : 0, n = grid[0] ? grid[0].length : 0, res = [];
+  for(let c=0;c<n;c++){ let f=0, k=0; for(let r=start;r<grid.length;r++){ const v=(grid[r][c]||'').trim(); if(v){ f++; if(NUM_RE.test(v)) k++; } } res.push(f >= 2 && k >= f*0.6); }
+  return res;
+}
+const isSuspect = (s, numCol, rowFilled) => { const t = s.trim();
+  if(numCol) return t ? !NUM_RE.test(t) : rowFilled;
+  return looksNumeric(t) && !NUM_RE.test(t); };
+function toNumber(s){
+  const t = s.trim().replace(/\s/g,'').replace('−','-');
+  if(!/^[-+]?\d+([.,]\d+)?([eE][-+]?\d+)?$/.test(t)) return null;
+  return parseFloat(t.replace(',', '.'));
+}
+
+/* ---------- Tabelle ---------- */
+let grid = [];
+let headerRow = true;
+let sel = {r:0,c:0};
+const undoStack = [];
+function pushUndo(){ undoStack.push(JSON.stringify({grid,headerRow})); if(undoStack.length > 40) undoStack.shift(); }
+$('undoBtn').onclick = () => { const s = undoStack.pop(); if(!s) return; ({grid,headerRow} = JSON.parse(s)); render(); };
+
+function normalize(){
+  const n = Math.max(1, ...grid.map(r=>r.length));
+  grid.forEach(r => { while(r.length < n) r.push(''); });
+  if(!grid.length) grid.push(Array(n).fill(''));
+}
+function showTable(withImg){
+  $('tableCard').style.display = 'block';
+  $('exportCard').style.display = 'block';
+  $('split').classList.toggle('has-img', !!withImg);
+  $('refBox').style.display = withImg ? 'block' : 'none';
+  if(!$('mDate').value) $('mDate').value = new Date().toISOString().slice(0,10);
+  render();
+}
+const colName = i => { let s=''; i++; while(i>0){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26);} return s; };
+function render(){
+  normalize();
+  const t = $('grid'); t.innerHTML = '';
+  const hr = document.createElement('tr');
+  hr.innerHTML = '<th class="rn"></th>' + grid[0].map((_,c)=>`<th>${colName(c)}</th>`).join('');
+  t.appendChild(hr);
+  const numC = numericCols();
+  grid.forEach((row,r) => {
+    const filled = row.some(v => v.trim());
+    const tr = document.createElement('tr');
+    if(r === 0 && headerRow) tr.className = 'headrow';
+    const rn = document.createElement('td'); rn.className = 'rn'; rn.textContent = (r===0 && headerRow) ? '★' : (headerRow ? r : r+1);
+    rn.title = r===0 && headerRow ? 'Überschriften' : '';
+    tr.appendChild(rn);
+    row.forEach((v,c) => {
+      const td = document.createElement('td');
+      td.contentEditable = 'true'; td.textContent = v; td.dataset.r = r; td.dataset.c = c;
+      if(!(r===0 && headerRow) && isSuspect(v, numC[c], filled)) td.classList.add('suspect');
+      if(r===sel.r && c===sel.c) td.classList.add('sel');
+      tr.appendChild(td);
+    });
+    t.appendChild(tr);
+  });
+}
+const grd = $('grid');
+let editSnap = null;
+grd.addEventListener('focusin', e => {
+  const td = e.target.closest('td[contenteditable]'); if(!td) return;
+  grd.querySelectorAll('td.sel').forEach(x=>x.classList.remove('sel'));
+  td.classList.add('sel'); sel = {r:+td.dataset.r, c:+td.dataset.c};
+  editSnap = JSON.stringify({grid,headerRow});
+});
+grd.addEventListener('input', e => {
+  const td = e.target.closest('td[contenteditable]'); if(!td) return;
+  grid[+td.dataset.r][+td.dataset.c] = td.textContent;
+});
+grd.addEventListener('focusout', e => {
+  const td = e.target.closest('td[contenteditable]'); if(!td) return;
+  if(editSnap && editSnap !== JSON.stringify({grid,headerRow})){ undoStack.push(editSnap); }
+  const r = +td.dataset.r, c = +td.dataset.c;
+  td.classList.toggle('suspect', !(r===0 && headerRow) && isSuspect(grid[r][c], numericCols()[c], grid[r].some(v=>v.trim())));
+});
+function focusCell(r,c){
+  const td = grd.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
+  if(td){ td.focus(); const rg = document.createRange(); rg.selectNodeContents(td); const s = getSelection(); s.removeAllRanges(); s.addRange(rg); }
+}
+grd.addEventListener('keydown', e => {
+  const td = e.target.closest('td[contenteditable]'); if(!td) return;
+  const r = +td.dataset.r, c = +td.dataset.c;
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    if(r === grid.length-1){ grid.push(Array(grid[0].length).fill('')); render(); }
+    focusCell(r+1, c);
+  } else if(e.key === 'Tab'){
+    e.preventDefault();
+    const n = grid[0].length;
+    let nr = r, nc = c + (e.shiftKey ? -1 : 1);
+    if(nc >= n){ nc = 0; nr++; } if(nc < 0){ nc = n-1; nr--; }
+    if(nr >= grid.length){ grid.push(Array(n).fill('')); render(); }
+    if(nr >= 0) focusCell(nr, nc);
+  } else if(e.key === 'ArrowDown' && r < grid.length-1){ e.preventDefault(); focusCell(r+1,c); }
+  else if(e.key === 'ArrowUp' && r > 0){ e.preventDefault(); focusCell(r-1,c); }
+});
+// Einfügen aus Excel/Sheets/Text (Tabulator- oder Semikolon-getrennt)
+grd.addEventListener('paste', e => {
+  const td = e.target.closest('td[contenteditable]'); if(!td) return;
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  if(!/[\t\n;]/.test(text)) return;
+  e.preventDefault(); pushUndo();
+  const sep = text.includes('\t') ? '\t' : ';';
+  const rows = text.replace(/\r/g,'').replace(/\n$/,'').split('\n').map(l => l.split(sep));
+  const r0 = +td.dataset.r, c0 = +td.dataset.c;
+  rows.forEach((row,i) => row.forEach((v,j) => {
+    while(grid.length <= r0+i) grid.push([]);
+    const R = grid[r0+i]; while(R.length <= c0+j) R.push('');
+    R[c0+j] = v.trim();
+  }));
+  render();
+});
+
+$('emptyBtn').onclick = () => {
+  if(grid.length && grid.some(r=>r.some(v=>v.trim())) && !confirm('Die aktuelle Tabelle wird ersetzt. Weiter?')) return;
+  pushUndo();
+  grid = [['Zeit t (s)','Messwert ()'], ...Array.from({length:8},()=>['',''])];
+  headerRow = true; showTable(false);
+  $('tableCard').scrollIntoView({behavior:'smooth', block:'start'});
+};
+$('addRow').onclick = () => { pushUndo(); grid.splice(sel.r+1, 0, Array(grid[0].length).fill('')); render(); focusCell(sel.r+1, sel.c); };
+$('addCol').onclick = () => { pushUndo(); grid.forEach(r => r.splice(sel.c+1, 0, '')); render(); focusCell(sel.r, sel.c+1); };
+$('delRow').onclick = () => { if(grid.length<2) return; pushUndo(); grid.splice(sel.r,1); sel.r = Math.min(sel.r, grid.length-1); render(); };
+$('delCol').onclick = () => { if(grid[0].length<2) return; pushUndo(); grid.forEach(r=>r.splice(sel.c,1)); sel.c = Math.min(sel.c, grid[0].length-1); render(); };
+$('fixBtn').onclick = () => { pushUndo(); const nc = numericCols(); grid = grid.map((row,r) => (r===0 && headerRow) ? row : row.map((v,c) => fixNumber(v, nc[c]))); render(); };
+$('cleanBtn').onclick = () => {
+  pushUndo();
+  grid = grid.filter(r => r.some(v => v.trim()));
+  if(!grid.length){ grid = [['']]; render(); return; }
+  const keep = grid[0].map((_,c) => grid.some(r => (r[c]||'').trim()));
+  grid = grid.map(r => r.filter((_,c) => keep[c]));
+  render();
+};
+
+/* ---------- Export ---------- */
+function meta(){ return { title:$('mTitle').value.trim(), names:$('mNames').value.trim(), klass:$('mClass').value.trim(), date:$('mDate').value }; }
+function fileBase(){
+  const m = meta();
+  const base = [m.title || 'Messwerte', m.klass, m.date].filter(Boolean).join('_');
+  return base.replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,'_').slice(0,80);
+}
+function dataRows(){ return grid.filter(r => r.some(v => v.trim())); }
+
+$('xlsxBtn').onclick = () => {
+  const rowsAll = dataRows();
+  if(!rowsAll.length){ alert('Die Tabelle ist leer.'); return; }
+  const m = meta();
+  const nCols = Math.max(...rowsAll.map(r=>r.length));
+  const head = headerRow ? rowsAll[0] : rowsAll[0].map((_,i)=>'Spalte '+colName(i));
+  const body = headerRow ? rowsAll.slice(1) : rowsAll;
+  const asNum = $('optNumbers').checked;
+  // Dezimalstellen je Spalte (damit 2,50 als 2,50 erscheint)
+  const dec = Array(nCols).fill(0);
+  body.forEach(r => r.forEach((v,c) => { const t = v.trim(); if(toNumber(t) !== null){ const k = (t.split(/[.,]/)[1]||'').replace(/[eE].*/,'').length; dec[c] = Math.max(dec[c], k); } }));
+
+  const border = { style:'thin', color:{rgb:'9AAFA8'} };
+  const B = { top:border, bottom:border, left:border, right:border };
+  const ws = {};
+  const set = (r,c,cell) => { ws[XLSX.utils.encode_cell({r,c})] = cell; };
+  let r = 0;
+  set(r,0,{ v: m.title || 'Messwerte', t:'s', s:{ font:{ bold:true, sz:16, color:{rgb:'1F7A5A'} } } }); r++;
+  const info = [m.names && 'Name(n): '+m.names, m.klass && 'Klasse: '+m.klass, m.date && 'Datum: '+m.date.split('-').reverse().join('.')].filter(Boolean).join('   ·   ');
+  if(info){ set(r,0,{ v:info, t:'s', s:{ font:{ color:{rgb:'5D6E68'} } } }); }
+  r += 2;
+  const headR = r;
+  for(let c=0;c<nCols;c++) set(r,c,{ v:(head[c]||'').trim(), t:'s', s:{ font:{bold:true, color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1F7A5A'}}, alignment:{horizontal:'center', vertical:'center', wrapText:true}, border:B } });
+  r++;
+  body.forEach((row,i) => {
+    const fill = i%2 ? { fill:{fgColor:{rgb:'EEF5F2'}} } : {};
+    for(let c=0;c<nCols;c++){
+      const v = (row[c]||'').trim();
+      const n = asNum ? toNumber(v) : null;
+      if(n !== null) set(r,c,{ v:n, t:'n', z: dec[c] ? '0.'+'0'.repeat(dec[c]) : '0', s:{ border:B, alignment:{horizontal:'center'}, ...fill } });
+      else set(r,c,{ v, t:'s', s:{ border:B, alignment:{horizontal:'center'}, ...fill } });
+    }
+    r++;
+  });
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:r-1, c:Math.max(nCols-1,0)}});
+  ws['!cols'] = Array.from({length:nCols}, (_,c) => ({ wch: Math.min(40, Math.max(12, ...[head[c]||'', ...body.map(rw=>rw[c]||'')].map(s=>String(s).length+3))) }));
+  ws['!rows'] = []; ws['!rows'][headR] = { hpt: 30 };
+  ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:Math.max(nCols-1,3)} }, { s:{r:1,c:0}, e:{r:1,c:Math.max(nCols-1,3)} }];
+  ws['!freeze'] = { xSplit:0, ySplit:headR+1 };
+  ws['!views'] = [{ state:'frozen', ySplit:headR+1, topLeftCell: XLSX.utils.encode_cell({r:headR+1,c:0}) }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Messwerte');
+  wb.Props = { Title: m.title || 'Messwerte', Author: m.names || '' };
+  XLSX.writeFile(wb, fileBase() + '.xlsx');
+};
+$('csvBtn').onclick = () => {
+  const rows = dataRows(); if(!rows.length) return;
+  const csv = rows.map(r => r.map(v => { v = v.trim(); return /[;"\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'}));
+  a.download = fileBase() + '.csv'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+};
+})();
+</script>
+</body>
+</html>
