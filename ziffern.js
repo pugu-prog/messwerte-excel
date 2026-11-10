@@ -155,13 +155,14 @@ function classifyComp(c, gray, W, H, val){
 const maxP = p => Math.max(...p);
 
 // Zusammengeschriebene Zeichen trennen, wenn die Teile für das Netz deutlich besser "aussehen"
-function maybeSplit(c, gray, W, H, val, charH, depth){
+function maybeSplit(c, gray, W, H, val, charH, depth, unitSpot){
   const p = classifyComp(c, gray, W, H, val);
   const w = c.x1-c.x0+1, h = c.y1-c.y0+1;
   if(depth > 2 || w < Math.max(h, charH)*0.75 || w < 10) return [{ c, p }];
-  // sicher erkannte Einheit (A, V, W) nicht zerteilen
+  // sicher erkannte Einheit (A, V, W) nicht zerteilen – aber nur am Ende hinter Ziffern;
+  // zusammengeschriebene Ziffern („40“, „2000“) sehen für das Netz sonst oft wie ein W aus
   const top = p.indexOf(maxP(p));
-  if(top >= 10 && top <= 12 && p[top] > 0.6) return [{ c, p }];
+  if(unitSpot && top >= 10 && top <= 12 && p[top] > 0.6 && w < h*1.4) return [{ c, p }];
   if(top === 0 && p[0] > 0.9 && w < h*1.6) return [{ c, p }];   // breit geschriebene 0
   const col = new Float32Array(w);
   for(const j of c.px) col[(j%W)-c.x0]++;
@@ -182,7 +183,7 @@ function maybeSplit(c, gray, W, H, val, charH, depth){
   }
   const single = maxP(p) - Math.max(0, (w/h - 0.85)*1.2);   // breite Gebilde sind selten eine einzelne Ziffer
   if(best && best.sc > single + 0.08)
-    return [...maybeSplit(best.a, gray, W, H, val, charH, depth+1), ...maybeSplit(best.b, gray, W, H, val, charH, depth+1)];
+    return [...maybeSplit(best.a, gray, W, H, val, charH, depth+1, false), ...maybeSplit(best.b, gray, W, H, val, charH, depth+1, unitSpot)];
   return [{ c, p }];
 }
 
@@ -208,7 +209,7 @@ function readCell(info, tableH){
   // Wiederholungszeichen: nur kleine Striche, oben in der Zelle
   // (nur Striche – keine Ziffernformen wie 0, 3, 9, die in kleiner Druckschrift ähnlich klein sind)
   const strokeLike = c => (c.x1-c.x0+1) < (c.y1-c.y0+1)*0.5;
-  if(tableH && tallest < tableH*0.62 && comps.length >= 2 && comps.length <= 4 && comps.every(c => (c.y0+c.y1)/2 < H*0.62 && strokeLike(c)))
+  if(tableH && tallest < tableH*0.85 && comps.length >= 2 && comps.length <= 4 && comps.every(c => (c.y0+c.y1)/2 < H*0.66 && strokeLike(c)))
     return { text:'"', conf:0.8, ditto:true, chars:0 };
   // Textzeile bestimmen
   const bigs = comps.filter(c => (c.y1-c.y0+1) >= charH*0.6);
@@ -246,14 +247,15 @@ function readCell(info, tableH){
     if(narrow && maxP(pM) > Math.min(maxP(pA), maxP(pB)) + 0.1){ merged.splice(i, 2, M); i--; }
   }
   const res = [];
-  merged.forEach(c => res.push(...maybeSplit(c, gray, W, H, val, charH, 0)));
+  merged.forEach((c, i) => res.push(...maybeSplit(c, gray, W, H, val, charH, 0, i === merged.length-1 && i > 0)));
   res.sort((a,b) => a.c.x0-b.c.x0);
   const classes = NET.classes;
   // Einheiten (A, V, W …) am Ende abschneiden
+  // höchstens ein Zeichen am Ende ist eine Einheit
   let end = res.length;
-  while(end > 0){
+  if(end > 1){
     const p = res[end-1].p, li = p.indexOf(maxP(p));
-    if(li >= 10 && p[li] > 0.45) end--; else break;
+    if(li >= 10 && li <= 12 && p[li] > 0.6) end--;
   }
   const unit = res.slice(end).map(r => classes[r.p.indexOf(maxP(r.p))]).filter(u => u !== '?').join('');
   let out = '', conf = 1;
@@ -307,7 +309,7 @@ function readGrid(infos){
       if(x.ditto){ out[r][c] = { text:'"', conf:0.8 }; continue; }
       let items = x.items || [];
       if(unitCol && items.length >= 2 && (items[items.length-1].letterP > 0.04 || !items[items.length-2].sep)) items = items.slice(0, -1);
-      else if(items.length >= 2 && items[items.length-1].letterP > 0.6) items = items.slice(0, -1);
+      else if(items.length >= 2 && items[items.length-1].letterP > 0.85 && 'AVW'.includes(items[items.length-1].top)) items = items.slice(0, -1);
       // „||“ = Wiederholungszeichen
       if(items.length === 2 && items.every(it => it.stroke) && !items[0].sep && tableH && items.every(it => it.h < tableH*0.9)){
         out[r][c] = { text:'"', conf:0.7 }; continue;

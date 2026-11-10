@@ -67,10 +67,10 @@ function findLines(b, W, H, horizontal){
   }
   // Gerade c = m*a + q durch die Mittelpunkte
   let segs = comps.filter(s => s.maxA - s.minA >= A*0.08).map(s => {
-    let n=0, sa=0, sc=0, saa=0, sac=0;
-    s.cols.forEach(([sum,cnt],a) => { const c = sum/cnt; n++; sa+=a; sc+=c; saa+=a*a; sac+=a*c; });
+    let n=0, sa=0, sc=0, saa=0, sac=0; const pts = [];
+    s.cols.forEach(([sum,cnt],a) => { const c = sum/cnt; n++; sa+=a; sc+=c; saa+=a*a; sac+=a*c; pts.push([a, c]); });
     const den = n*saa - sa*sa, m = den ? (n*sac - sa*sc)/den : 0;
-    return { m, q:(sc - m*sa)/n, a0:s.minA, a1:s.maxA };
+    return { m, q:(sc - m*sa)/n, a0:s.minA, a1:s.maxA, pts };
   }).filter(s => Math.abs(s.m) < 0.15);
   // Teilstücke derselben Linie zusammenfügen
   segs.sort((u,v) => (u.q+u.m*A/2) - (v.q+v.m*A/2));
@@ -82,15 +82,34 @@ function findLines(b, W, H, horizontal){
       const w1 = L.a1-L.a0, w2 = s.a1-s.a0;
       L.m = (L.m*w1 + s.m*w2)/(w1+w2); L.q = (L.q*w1 + s.q*w2)/(w1+w2);
       L.a0 = Math.min(L.a0, s.a0); L.a1 = Math.max(L.a1, s.a1);
-    } else merged.push({...s});
+      L.pts = L.pts.concat(s.pts);
+    } else merged.push({...s, pts: s.pts.slice()});
   }
   return merged;
 }
 
+// Lage einer Linie an der Stelle a – lokal angepasst, damit auch gebogenes Papier passt
+function localAt(L, a){
+  if(!L.pts || L.pts.length < 8) return L.m*a + L.q;
+  const win = Math.max(40, (L.a1-L.a0)*0.12);
+  let n=0, sa=0, sc=0, saa=0, sac=0;
+  for(const [pa, pc] of L.pts){ if(Math.abs(pa-a) > win) continue; n++; sa+=pa; sc+=pc; saa+=pa*pa; sac+=pa*pc; }
+  if(n < 6) return L.m*a + L.q;
+  const den = n*saa - sa*sa, m = den ? (n*sac - sa*sc)/den : L.m;
+  return m*a + (sc - m*sa)/n;
+}
 // Schnittpunkt Waagrechte y = m x + q mit Senkrechte x = n y + r
 function cross(h, v){
-  const x = (v.m*h.q + v.q) / (1 - v.m*h.m);
-  return { x, y: h.m*x + h.q };
+  let x = (v.m*h.q + v.q) / (1 - v.m*h.m), y = h.m*x + h.q;
+  if(h.pts || v.pts) for(let i=0;i<2;i++){ y = localAt(h, x); x = localAt(v, y); }
+  return { x, y };
+}
+// Gerade durch Punkte (für ergänzte Tabellenränder)
+function lineThrough(pts, a0, a1){
+  let n=0, sa=0, sc=0, saa=0, sac=0;
+  for(const [a, c] of pts){ n++; sa+=a; sc+=c; saa+=a*a; sac+=a*c; }
+  const den = n*saa - sa*sa, m = den ? (n*sac - sa*sc)/den : 0;
+  return { m, q:(sc - m*sa)/n, a0, a1 };
 }
 
 function detectGrid(canvas){
@@ -112,6 +131,35 @@ function detectGrid(canvas){
   // zu nah beieinander liegende (doppelte) Linien entfernen
   const dedupe = (ls, size) => ls.filter((l,i) => i === 0 || Math.abs((l.q + l.m*size/2) - (ls[i-1].q + ls[i-1].m*size/2)) > size*0.012);
   hs = dedupe(hs, W); vs = dedupe(vs, H);
+  // Kurze Waagrechte (z. B. Unterstrich bei „Belastung: ____“) gehören nicht zur Tabelle
+  const X0 = vs[0].q + vs[0].m*H/2, X1 = vs[vs.length-1].q + vs[vs.length-1].m*H/2, TW = X1 - X0;
+  const shortOnes = hs.filter(h => Math.min(h.a1, X1) - Math.max(h.a0, X0) < TW*0.5);
+  hs = hs.filter(h => Math.min(h.a1, X1) - Math.max(h.a0, X0) >= TW*0.5);
+  if(hs.length < 1) return null;
+  // Oberen/unteren Tabellenrand aus den Enden der Senkrechten ergänzen, falls er fehlt
+  const rowH = hs.length > 1 ? ((hs[hs.length-1].q + hs[hs.length-1].m*W/2) - (hs[0].q + hs[0].m*W/2)) / (hs.length-1) : H/10;
+  const yAt = (h) => h.q + h.m*(X0+X1)/2;
+  const ends = vs.map(v => [[v.m*v.a0 + v.q, v.a0], [v.m*v.a1 + v.q, v.a1]]);
+  const bottom = lineThrough(ends.map(e => e[1]), X0, X1), top = lineThrough(ends.map(e => e[0]), X0, X1);
+  if(yAt(bottom) - yAt(hs[hs.length-1]) > rowH*0.5) hs.push(bottom);
+  if(yAt(hs[0]) - yAt(top) > rowH*0.5) hs.unshift(top);
+  // Lücken (doppelt hohe Zeile) = Linie nur teilweise erkannt, z. B. weil das Papier gewölbt ist → ergänzen
+  const mids = hs.map(h => h.q + h.m*(X0+X1)/2);
+  const gaps = mids.slice(1).map((y,i) => y - mids[i]).sort((a,b)=>a-b);
+  const med = gaps[gaps.length>>1] || 0;
+  for(let i=hs.length-2; med && i>=0; i--){
+    const A = hs[i], B = hs[i+1], gap = mids[i+1] - mids[i];
+    const n = Math.round(gap / med);
+    if(gap < med*1.6 || n < 2 || n > 4) continue;
+    for(let k=n-1;k>=1;k--){
+      const t = k/n, L = { m: A.m*(1-t) + B.m*t, q: A.q*(1-t) + B.q*t, a0: X0, a1: X1 };
+      // Teilstück dieser Linie vorhanden? Dann seine Punkte für die genaue Lage nutzen
+      const frag = shortOnes.find(f => f.pts && f.pts.some(([a, c]) => Math.abs(c - (L.m*a + L.q)) < med*0.35));
+      if(frag) L.pts = frag.pts;
+      hs.splice(i+1, 0, L);
+    }
+  }
+  if(hs.length < 2) return null;
   return { hs, vs, W, H };
 }
 
@@ -178,7 +226,7 @@ function cleanCell(cv){
     p[i*4]=p[i*4+1]=p[i*4+2]=v; p[i*4+3]=255;
   }
   x.putImageData(d,0,0);
-  const empty = inkCount < W*H*0.006 || (maxX-minX) < H*0.12 && (maxY-minY) < H*0.25;
+  const empty = inkCount < W*H*0.0025 || (maxX-minX) < H*0.06 && (maxY-minY) < H*0.1;
   return { empty, box: empty ? null : { x0:minX, x1:maxX, y0:minY, y1:maxY }, inkFrac: inkCount/(W*H), ink: Uint8Array.from(ink, v => v ? 1 : 0), gray: g, W, H };
 }
 
@@ -197,5 +245,5 @@ function cropInk(cv, box){
   return out;
 }
 
-global.Tabelle = { cropInk, detectGrid, cellCanvas, cleanCell, cross };
+global.Tabelle = { CELL_H: 112, cropInk, detectGrid, cellCanvas, cleanCell, cross };
 })(window);

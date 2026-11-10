@@ -62,7 +62,8 @@ def add_flag(a):
     if len(xs) < 10: return None
     im = Image.fromarray(a.copy()); d = ImageDraw.Draw(im)
     ty = ys.min(); tx = int(xs[ys == ty].mean()); h = ys.max()-ys.min()
-    L = random.uniform(0.35, 0.85) * h; ang = random.uniform(0.25, 1.05)
+    L = random.uniform(0.35, 1.0) * h; ang = random.uniform(0.25, 1.25)
+    ty = ty + int(random.uniform(0, 0.08) * h)   # Aufstrich setzt manchmal knapp unter der Spitze an
     d.line([(tx, ty), (tx - L*np.cos(ang), ty + L*np.sin(ang))], fill=255, width=random.randint(2, 3))
     return normalize(np.asarray(im))
 
@@ -83,9 +84,10 @@ def european(X, Y):
     extra_X, extra_Y = [], []
     for i in range(len(X)):
         if Y[i] == 7: X[i] = add_bar(X[i])
-        elif Y[i] == 1 and random.random() < 0.8:
-            f = add_flag(X[i])
-            if f is not None: extra_X.append(f); extra_Y.append(1)
+        elif Y[i] == 1:
+            for _ in range(2):   # zwei Varianten je 1 – diese Form wird sonst für einen Buchstaben gehalten
+                f = add_flag(X[i])
+                if f is not None: extra_X.append(f); extra_Y.append(1)
     return extra_X, extra_Y
 
 def augment(x):
